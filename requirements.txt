@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+httpx
+anthropic
+beautifulsoup4
+pydantic
+pytest
+sentence-transformers
+sqlalchemy
