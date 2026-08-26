@@ -1,7 +1,0 @@
-fastapi
-httpx
-anthropic
-beautifulsoup4
-pydantic
-pytest
-uvicorn
