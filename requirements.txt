@@ -2,6 +2,10 @@ fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
+python-dotenv
+groq
+google-generativeai
+anthropic
 openai
 httpx
 pytest
