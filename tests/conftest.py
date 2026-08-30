@@ -1,21 +1,19 @@
-"""
-Shared pytest fixtures for the Pramana test suite.
+"""Shared pytest fixtures for the Pramana test suite."""
 
-Provides: async test client, mock LLM responses, in-memory DB session.
-"""
+import os
 import pytest
 
-# TODO: add fixtures
-# Example fixture stubs:
+# Ensure .env is loaded and API keys are available for tests
+os.chdir(os.path.dirname(os.path.abspath(__file__)) or ".")
+from dotenv import load_dotenv
+load_dotenv()
 
-@pytest.fixture
-def mock_llm():
-    """Return a mock LLM client that returns canned responses."""
-    # TODO: implement
-    pass
+# Set a dummy GROQ_API_KEY so LLM calls don't fail in tests
+os.environ.setdefault("GROQ_API_KEY", "sk-test-dummy-key-for-testing-only")
+
 
 @pytest.fixture
 def test_client():
     """Return a FastAPI TestClient wrapping the Pramana app."""
-    # TODO: implement
-    pass
+    from main import app
+    return TestClient(app)
