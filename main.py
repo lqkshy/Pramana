@@ -8,10 +8,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
+from app.services.logger import get_logger
 
 load_dotenv()  # load .env from project root
 
 DEV_MODE = os.getenv("DEV_MODE", "false").strip().lower() == "true"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+
+logger = get_logger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -43,8 +47,5 @@ app = create_app()
 
 @app.on_event("startup")
 async def on_startup():
-    """Log startup information including DEV_MODE."""
-    import logging
-
-    logger = logging.getLogger("uvicorn.error")
-    logger.info(f"Pramana API starting. DEV_MODE={DEV_MODE}")
+    """Log startup information including DEV_MODE and LLM_PROVIDER."""
+    logger.info("Pramana API started | DEV_MODE=%s | provider=%s", DEV_MODE, LLM_PROVIDER)
