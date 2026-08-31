@@ -19,6 +19,10 @@ import time
 from collections import deque
 from dotenv import load_dotenv
 
+from app.services.logger import get_logger
+
+logger = get_logger(__name__)
+
 load_dotenv()
 
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq").strip().lower()
@@ -172,6 +176,13 @@ async def call_llm(prompt: str, task_type: str = "fast") -> str:
         raise ValueError(f"Unknown task_type: '{task_type}'. Expected 'fast' or 'reasoning'.")
 
     model = PROVIDER_MODEL_MAP[LLM_PROVIDER][groq_model]
+
+    logger.info(
+        "LLM call | model=%s | task_type=%s | DEV_MODE=%s",
+        model,
+        task_type,
+        DEV_MODE,
+    )
 
     # 3. Dispatch to provider
     try:

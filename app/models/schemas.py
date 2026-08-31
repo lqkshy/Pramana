@@ -120,6 +120,6 @@ class VerifyResponse(BaseModel):
     )
 
     claims: list[VerificationResult] = Field(
-        min_length=1,
+        default_factory=list,
         description="All verification results",
     )

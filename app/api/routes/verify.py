@@ -5,6 +5,8 @@ Exports an APIRouter with:
   POST /verify — verify claims extracted from input text
 """
 
+import logging
+
 from fastapi import APIRouter, Body
 from typing import List
 
@@ -14,6 +16,8 @@ from app.models.schemas import (
     VerifyResponse,
 )
 from app.pipeline.claims.extractor import extract_claims
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="")
@@ -46,32 +50,23 @@ async def verify_claims(
     verdict="SUPPORTED", confidence=0.5, evidence_strength=0.5,
     and a placeholder explanation.
     """
-    # Extract claims from the input text
     extracted = await extract_claims(claim_input.text)
 
-    # Build a VerificationResult for each selected claim
+    selected = extracted.get("selected_claims", [])
+
+    if not selected:
+        logger.warning("No claims extracted from input text")
+        return VerifyResponse(claims=[])
+
     results: List[VerificationResult] = []
-    for claim in extracted.get("selected_claims", []):
+    for claim in selected:
         results.append(
             VerificationResult(
                 claim=claim,
-                verdict="SUPPORTED",  # mocked for now
-                confidence=0.5,
-                evidence_strength=0.5,
-                explanation="Full verification coming in Week 5",
-                matched_claim_id=None,
-            )
-        )
-
-    # Ensure at least one claim result per the VerifyResponse contract
-    if not results:
-        results.append(
-            VerificationResult(
-                claim="[no claims extracted]",
                 verdict="SUPPORTED",
                 confidence=0.5,
                 evidence_strength=0.5,
-                explanation="Full verification coming in Week 5",
+                explanation="Full verification pipeline coming in Week 5",
                 matched_claim_id=None,
             )
         )

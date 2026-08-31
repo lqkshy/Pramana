@@ -16,9 +16,9 @@ import asyncio
 import json
 import logging
 
-from app.services.llm_client import call_llm
+from app.services.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +80,7 @@ async def extract_claims(text: str) -> dict:
         return {"selected_claims": [], "disambiguated": [], "decomposed": []}
 
     logger.debug("Parsed %d claim(s) successfully.", len(sc))
+    logger.info("Claims extracted | count=%d", len(sc))
     return {"selected_claims": sc, "disambiguated": dis, "decomposed": dec}
 
 
