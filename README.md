@@ -115,7 +115,3 @@ The first request is slow because two small models (about 170 MB) download once 
 - **The claim cache can be too eager.** Two claims that differ only in a number can look very similar to an embedding model. The similarity threshold is adjustable (`CLAIM_MATCH_THRESHOLD`) and I'd like to add an explicit number check.
 - **English only**, and it's tuned for factual claims about the world, not opinions, satire or claims about the future.
 
-
-## License
-
-MIT. See [LICENSE](LICENSE).
