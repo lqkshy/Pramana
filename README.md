@@ -1,79 +1,71 @@
 # Pramana
 
-An AI-powered fact-checking API that extracts claims from text, searches for evidence, and verifies accuracy — built for developers who need reliable fact-checking in their applications.
+Research-grade, open-source AI fact-checking pipeline. Paste text → get every checkable claim
+with a verdict (**SUPPORTED / CONTRADICTED / CONFLICTING_EVIDENCE / INSUFFICIENT_EVIDENCE**),
+a plain-English chain-of-thought, cited sources, and an `evidence_strength` score.
+Runs on free tiers only (Groq, Tavily, Supabase).
 
----
+## Pipeline (9 stages)
 
-## Tech Stack
+| # | Stage | Module | Tooling |
+|---|-------|--------|---------|
+| 1 | Claim extraction (1 call) | `app/pipeline/claims/extractor.py` | Groq Llama 3.1 8B |
+| 2 | Check-worthiness filter | `app/pipeline/check_worthiness.py` | Groq 8B |
+| 3 | Claim matching (cache) | `app/pipeline/claim_matching.py` | MiniLM + pgvector |
+| 4 | Query generation | `app/pipeline/queries.py` | Groq 8B |
+| 5 | Retrieval (live / pre-retrieved) | `app/pipeline/retrieval.py` | Tavily |
+| 6 | Source trust scoring | `app/services/source_trust.py` | pure Python |
+| 7 | Evidence: scrape → rerank → refine | `app/pipeline/evidence.py`, `reranking.py` | cross-encoder + 1 Groq call |
+| 8 | Verification + CoT | `app/pipeline/verification.py` | Groq 8B (dev) / 3.3 70B (prod) |
+| 9 | Store + return | `app/models/database.py` | Supabase |
 
-- **FastAPI** — high-performance async API framework
-- **Groq (Llama 3.1)** — fast LLM inference for claim extraction and reasoning
-- **Tavily Search** — real-time web search for evidence retrieval
-- **Supabase (PostgreSQL)** — persistent storage for claims, evidence, and verdicts
-- **Next.js** — frontend dashboard (coming soon)
+`evidence_strength = avg(quality of cited sources) × min(1, cited_count / 3)`
 
----
-
-## Quick Start
+## Quick start
 
 ```bash
-git clone https://github.com/YOURNAME/pramana.git
-cd pramana
-cp .env.example .env   # fill in your keys
+git clone https://github.com/lqkshy/Pramana.git
+cd Pramana
+python -m venv .venv && .venv\Scripts\activate      # Windows (use Python 3.11/3.12)
 pip install -r requirements.txt
-uvicorn main:app --reload
+copy .env.example .env                               # then fill in your keys
+uvicorn app.main:app --reload
 ```
 
-Server starts at `http://localhost:8000`. API docs at `http://localhost:8000/docs`.
+API docs: http://localhost:8000/docs · Health: http://localhost:8000/health
 
----
+```bash
+curl -X POST http://localhost:8000/verify -H "Content-Type: application/json" \
+     -d '{"text": "NASA launched Artemis I on November 16, 2022."}'
+```
 
-## Project Structure
+## Configuration (`.env`)
 
-| Folder | Purpose |
-|--------|---------|
-| `app/pipeline/claims/` | Claim extraction, disambiguation, and decomposition |
-| `app/pipeline/` | Retrieval and verification pipeline stages |
-| `app/services/` | LLM client, logging, and shared utilities |
-| `app/models/` | Pydantic schemas and database models |
-| `app/api/routes/` | FastAPI endpoint definitions |
-| `tests/` | pytest test suite |
+| Var | Meaning |
+|-----|---------|
+| `LLM_PROVIDER` | `groq` (default) · `gemini` · `anthropic` · `openai` · `ollama` |
+| `GROQ_API_KEY` / `TAVILY_API_KEY` | free keys from console.groq.com / tavily.com |
+| `DATABASE_URL` | Supabase Postgres URL (optional — falls back to in-memory cache) |
+| `DEV_MODE` | `true` = verification on 8B (14,400 req/day). `false` = 3.3 70B for benchmarks/demo |
+| `USE_LIVE_SEARCH` | `false` = pre-retrieved evidence (benchmarks). The API server forces `true` |
 
----
+## Tests
 
-## Environment Variables
+```bash
+pytest -v          # runs offline; live-API and embedding tests auto-skip without keys/models
+```
 
-| Variable | Description |
-|----------|-------------|
-| `LLM_PROVIDER` | LLM provider: `groq`, `gemini`, `anthropic`, `openai`, `ollama` (default: `groq`) |
-| `GROQ_API_KEY` | Groq API key for Llama 3.1 inference |
-| `GEMINI_API_KEY` | Google Gemini API key (if using gemini provider) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (if using anthropic provider) |
-| `OPENAI_API_KEY` | OpenAI API key (if using openai provider) |
-| `TAVILY_API_KEY` | Tavily Search API key for web evidence retrieval |
-| `DATABASE_URL` | PostgreSQL connection string (Supabase or local) |
-| `DEV_MODE` | `true` or `false` — enables verbose logging and smaller models |
-| `USE_LIVE_SEARCH` | `true` or `false` — enable/disable Tavily live search |
+## Layout
 
----
-
-## Week 1 Status
-
-✅ **Working:**
-- Unified async LLM client with rate limiting (Groq, Gemini, Anthropic, OpenAI, Ollama)
-- Claim extraction with JSON-structured output (selected claims, disambiguated, decomposed)
-- FastAPI server with CORS and structured logging
-- Supabase/PostgreSQL connection and schema
-- Tavily Search integration for evidence retrieval
-
-🔜 **Coming:**
-- Evidence verification and verdict generation
-- Next.js frontend dashboard
-- Evaluation benchmark (TruthfulQA, FEVER, custom datasets)
-- Caching layer and request deduplication
-
----
+```
+app/
+  main.py                FastAPI app (/health, /verify)
+  models/                schemas.py (Pydantic), database.py (SQLAlchemy + pgvector)
+  pipeline/              stages 1-5, 7, 8 (+ claims/extractor.py)
+  services/              llm_client.py, source_trust.py, logger.py
+evaluation/              benchmark loaders + metrics (AVeriTeC, SciFact)
+tests/                   pytest suite
+```
 
 ## License
-
 MIT

@@ -1,42 +1,48 @@
-# Python caches
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.eggs/
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Environment
-.env
-
-# Test caches
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Logs
-*.log
-
-# Evaluation datasets
-evaluation/datasets/*
-
-# Frontend dependencies
-node_modules/
-
-# IDE files
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-
-# ENV
+# ── Secrets (NEVER commit) ─────────────────────────────
 .env
 .env.*
 !.env.example
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# ── Test / tooling caches ──────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ── Editors / OS ───────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Logs ───────────────────────────────────────────────
+*.log
+logs/
+
+# ── ML models & datasets (large, re-downloadable) ──────
+.cache/
+huggingface/
+models_cache/
+evaluation/datasets/*
+!evaluation/datasets/.gitkeep
+evaluation/results/
+
+# ── Local databases ────────────────────────────────────
+*.db
+*.sqlite3
+
+# ── Frontend (Week 8) ──────────────────────────────────
+node_modules/
+.next/
+frontend/.env.local

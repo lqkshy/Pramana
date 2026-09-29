@@ -1,1 +1,0 @@
-"""app.pipeline package initialiser."""

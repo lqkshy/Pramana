@@ -1,104 +1,160 @@
 """
-Claims Extractor — fact-checking pipeline module.
+app/pipeline/claims/extractor.py
+──────────────────────────────────
+Stage 1 of the Pramana pipeline.
 
-Usage:
-    from app.pipeline.claims.extractor import extract_claims
+ONE structured Groq call that returns all three extraction outputs as a single JSON object:
+  {
+    "selected_sentences": [...],   // verifiable sentences from the input
+    "disambiguated":      [...],   // pronouns/context resolved
+    "decomposed":         [...]    // atomic claims (one falsifiable fact each)
+  }
 
-    result = await extract_claims("Some text with factual claims...")
-    print(result["selected_claims"])
-    print(result["disambiguated"])
-    print(result["decomposed"])
+This is Fix 1 from the build plan: previously 4 separate Ollama calls (20–40s latency).
+Now 1 Groq call. All three outputs are produced in a single request.
+
+Model: Groq Llama 3.1 8B (task_type="fast") — 14,400 req/day free tier.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
+import re
+from typing import Optional
 
-from app.services.logger import get_logger
+from app.models.schemas import AtomicClaim, ExtractionResult
+from app.services.llm_client import call_llm
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
+
+# ── Prompt ─────────────────────────────────────────────────────────────────────
+_SYSTEM = (
+    "You are a claim extraction engine for a fact-checking pipeline. "
+    "You identify verifiable factual claims in text, resolve ambiguities, "
+    "and decompose compound claims into atomic sub-claims. "
+    "Return ONLY valid JSON. No preamble. No markdown fences."
+)
+
+_PROMPT_TEMPLATE = """Extract verifiable claims from the following text.
+
+Text:
+\"\"\"{text}\"\"\"
+
+Perform three tasks and return them in a single JSON object:
+
+1. selected_sentences: Select sentences that contain specific, verifiable factual claims.
+   Skip opinions, predictions, rhetorical questions, and vague generalities.
+
+2. disambiguated: For each selected sentence, rewrite it so it is self-contained.
+   Replace all pronouns (he, she, they, it, this, that) with the specific entity they refer to.
+   Replace "the company", "the country", "the study" etc. with the actual named entity.
+   If a sentence is already clear with no pronouns or ambiguous references, copy it unchanged.
+
+3. decomposed: Break each disambiguated sentence into atomic claims.
+   Each atomic claim = exactly ONE falsifiable fact.
+   Split compound sentences with "and", "but", "while", "also" into separate claims.
+   Each claim must be self-contained and make sense on its own.
+
+Return ONLY this JSON structure:
+{{
+  "selected_sentences": [
+    "sentence 1 exactly as it appears in the text",
+    "sentence 2 exactly as it appears in the text"
+  ],
+  "disambiguated": [
+    "sentence 1 with all pronouns and references resolved",
+    "sentence 2 with all pronouns and references resolved"
+  ],
+  "decomposed": [
+    "atomic claim 1 (one falsifiable fact)",
+    "atomic claim 2 (one falsifiable fact)",
+    "atomic claim 3 (one falsifiable fact)"
+  ]
+}}
+
+If the text contains NO verifiable factual claims, return:
+{{"selected_sentences": [], "disambiguated": [], "decomposed": []}}"""
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-async def extract_claims(text: str) -> dict:
+# ── Public API ─────────────────────────────────────────────────────────────────
+async def extract_claims(text: str) -> ExtractionResult:
     """
-    Extract, disambiguate, and decompose factual claims from *text*.
-
-    Makes exactly one LLM call (task_type='fast' via llm_client) and returns
-    a plain dict with three keys: selected_claims, disambiguated, decomposed.
+    Stage 1: Extract, disambiguate, and decompose claims from input text.
 
     Args:
-        text: Raw input passage to analyse.
+        text: Raw input text from the user (article, speech, social media post, etc.)
 
     Returns:
-        dict with keys "selected_claims", "disambiguated", "decomposed".
-        If parsing fails, returns {"selected_claims": [], "disambiguated": [], "decomposed": []}.
+        ExtractionResult with selected_sentences, disambiguated text, and atomic claims.
     """
-    if not text or not text.strip():
-        return {"selected_claims": [], "disambiguated": [], "decomposed": []}
+    if not text.strip():
+        logger.warning("extract_claims: empty input text.")
+        return ExtractionResult(raw_input=text)
 
-    prompt = (
-        "Respond ONLY with valid JSON. No explanation, no markdown, no code fences.\n"
-        '{"selected_claims": [...], "disambiguated": [...], "decomposed": [[...]]}'
+    prompt = _PROMPT_TEMPLATE.format(text=text.strip())
+
+    raw = await call_llm(
+        prompt=prompt,
+        task_type="fast",
+        system_prompt=_SYSTEM,
+        max_tokens=2048,
+        temperature=0.0,
+        json_mode=True,
     )
 
-    try:
-        raw = await call_llm(prompt, task_type="fast")
-    except Exception as exc:
-        logger.error("LLM call failed: %s", exc)
-        return {"selected_claims": [], "disambiguated": [], "decomposed": []}
+    result = _parse_response(raw, text)
+    logger.info(
+        "extract_claims: found %d atomic claims from %d chars of text",
+        len(result.claims),
+        len(text),
+    )
+    return result
+
+
+# ── Response parsing ───────────────────────────────────────────────────────────
+def _parse_response(raw: str, original_text: str) -> ExtractionResult:
+    cleaned = _strip_fences(raw)
 
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.error("LLM response is not valid JSON: %s", exc)
-        return {"selected_claims": [], "disambiguated": [], "decomposed": []}
-
-    # Validate required keys
-    required_keys = {"selected_claims", "disambiguated", "decomposed"}
-    missing = required_keys - set(data.keys())
-    if missing:
-        logger.error("LLM response missing required keys: %s", missing)
-        return {"selected_claims": [], "disambiguated": [], "decomposed": []}
-
-    # Ensure all three lists have the same length
-    sc = data.get("selected_claims", [])
-    dis = data.get("disambiguated", [])
-    dec = data.get("decomposed", [])
-
-    if not (len(sc) == len(dis) == len(dec)):
-        logger.error(
-            "List length mismatch — selected_claims=%d, disambiguated=%d, decomposed=%d",
-            len(sc), len(dis), len(dec),
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning(
+            "extract_claims: JSON parse failed. Raw: %r", raw[:300]
         )
-        return {"selected_claims": [], "disambiguated": [], "decomposed": []}
+        return ExtractionResult(raw_input=original_text)
 
-    logger.debug("Parsed %d claim(s) successfully.", len(sc))
-    logger.info("Claims extracted | count=%d", len(sc))
-    return {"selected_claims": sc, "disambiguated": dis, "decomposed": dec}
+    selected: list[str] = data.get("selected_sentences", [])
+    disambiguated: list[str] = data.get("disambiguated", [])
+    decomposed: list[str] = data.get("decomposed", [])
 
+    # Build AtomicClaim objects, mapping each decomposed claim back to its
+    # most likely original sentence (by index alignment when counts match).
+    claims: list[AtomicClaim] = []
+    for i, claim_text in enumerate(decomposed):
+        if not claim_text.strip():
+            continue
+        original = selected[i] if i < len(selected) else (selected[-1] if selected else "")
+        disambig = disambiguated[i] if i < len(disambiguated) else claim_text
+        claims.append(
+            AtomicClaim(
+                text=claim_text.strip(),
+                original_sentence=original,
+                disambiguated=disambig.strip(),
+            )
+        )
 
-if __name__ == "__main__":
-    import pprint
-
-    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
-
-    EXAMPLE_TEXT = (
-        "Elon Musk founded Tesla in 2003 and it is now the world's most valuable "
-        "car company with over 100 billion in revenue."
+    return ExtractionResult(
+        selected_sentences=selected,
+        claims=claims,
+        raw_input=original_text,
     )
 
-    print("=" * 60)
-    print("INPUT TEXT:")
-    print(EXAMPLE_TEXT)
-    print("=" * 60)
 
-    claims = asyncio.run(extract_claims(EXAMPLE_TEXT))
-    print("\nRESULT:")
-    pprint.pprint(claims)
+def _strip_fences(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        inner = lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:]
+        text = "\n".join(inner).strip()
+    return text

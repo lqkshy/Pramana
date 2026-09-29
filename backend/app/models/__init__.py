@@ -1,1 +1,0 @@
-"""app.models package initialiser."""
